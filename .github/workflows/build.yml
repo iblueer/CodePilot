@@ -93,6 +93,7 @@ jobs:
             --team-id "$APPLE_TEAM_ID" >/dev/null
 
       - name: Package for macOS (x64 + arm64)
+        timeout-minutes: 25
         env:
           CSC_LINK: ${{ env.HAS_CERT == 'true' && '/tmp/cert.p12' || '' }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
