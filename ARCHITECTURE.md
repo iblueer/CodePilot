@@ -133,7 +133,9 @@ Schema 定义在 `src/lib/db.ts`，12 张表：
 | Bridge 系统 | `docs/handover/bridge-system.md` | 架构、适配器、渲染管线 |
 | Agent 工具集成 | `docs/handover/agent-tooling-todo-bridge.md` | SDK 工具调用、任务桥接 |
 | SDK 集成调研 | `docs/research/chat-sdk-integration-feasibility.md` | Chat SDK 可行性分析 |
-| 上下文存储迁移 | `docs/research/context-storage-migration-plan.md` | 数据库迁移方案 |
+| 上下文存储迁移（调研） | `docs/research/context-storage-migration-plan.md` | 数据库迁移详细方案 |
+| 上下文存储迁移（执行） | `docs/exec-plans/active/context-storage-migration.md` | 分阶段进度 + 决策日志 |
+| 技术债务 | `docs/exec-plans/tech-debt-tracker.md` | 已知技术债务清单 |
 
 ## 技术栈
 

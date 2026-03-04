@@ -52,9 +52,18 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 
 **构建：** macOS 产出 DMG（arm64 + x64），Windows 产出 NSIS 安装包。`scripts/after-pack.js` 重编译 better-sqlite3 为 Electron ABI。构建前清理 `rm -rf release/ .next/`。
 
+## 执行计划
+
+**中大型功能（跨 3+ 模块、涉及 schema 变更、需分阶段交付）必须先写执行计划再开工。**
+- 活跃计划放 `docs/exec-plans/active/`，完成后移至 `completed/`
+- 纯调研/可行性分析放 `docs/research/`
+- 发现技术债务时记录到 `docs/exec-plans/tech-debt-tracker.md`
+- 模板和规范见 `docs/exec-plans/README.md`
+
 ## 文档
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 项目架构、目录结构、数据流、新功能触及点
+- `docs/exec-plans/` — 执行计划（进度状态 + 决策日志 + 技术债务）
 - `docs/handover/` — 交接文档（架构、数据流、设计决策）
 - `docs/research/` — 调研文档（技术方案、可行性分析）
 
