@@ -22,6 +22,19 @@ const BRIDGE_SETTING_KEYS = [
   'bridge_feishu_group_policy',
   'bridge_feishu_group_allow_from',
   'bridge_feishu_require_mention',
+  'bridge_discord_enabled',
+  'bridge_discord_bot_token',
+  'bridge_discord_allowed_users',
+  'bridge_discord_allowed_channels',
+  'bridge_discord_allowed_guilds',
+  'bridge_discord_group_policy',
+  'bridge_discord_require_mention',
+  'bridge_discord_stream_enabled',
+  'bridge_discord_stream_interval_ms',
+  'bridge_discord_stream_min_delta_chars',
+  'bridge_discord_stream_max_chars',
+  'bridge_discord_max_attachment_size',
+  'bridge_discord_image_enabled',
 ] as const;
 
 export async function GET() {

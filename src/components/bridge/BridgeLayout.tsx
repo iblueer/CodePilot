@@ -3,15 +3,16 @@
 import { useState, useCallback, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
-import { Wifi01Icon, TelegramIcon, BubbleChatIcon } from "@hugeicons/core-free-icons";
+import { Wifi01Icon, TelegramIcon, BubbleChatIcon, GameController01Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import { BridgeSection } from "./BridgeSection";
 import { TelegramBridgeSection } from "./TelegramBridgeSection";
 import { FeishuBridgeSection } from "./FeishuBridgeSection";
+import { DiscordBridgeSection } from "./DiscordBridgeSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "bridge" | "telegram" | "feishu";
+type Section = "bridge" | "telegram" | "feishu" | "discord";
 
 interface SidebarItem {
   id: Section;
@@ -23,6 +24,7 @@ const sidebarItems: SidebarItem[] = [
   { id: "bridge", label: "Bridge", icon: Wifi01Icon },
   { id: "telegram", label: "Telegram", icon: TelegramIcon },
   { id: "feishu", label: "Feishu", icon: BubbleChatIcon },
+  { id: "discord", label: "Discord", icon: GameController01Icon },
 ];
 
 function getSectionFromHash(): Section {
@@ -50,6 +52,7 @@ export function BridgeLayout() {
     'Bridge': 'bridge.title',
     'Telegram': 'bridge.telegramSettings',
     'Feishu': 'bridge.feishuSettings',
+    'Discord': 'bridge.discordSettings',
   };
 
   const handleSectionChange = useCallback((section: Section) => {
@@ -90,6 +93,7 @@ export function BridgeLayout() {
           {activeSection === "bridge" && <BridgeSection />}
           {activeSection === "telegram" && <TelegramBridgeSection />}
           {activeSection === "feishu" && <FeishuBridgeSection />}
+          {activeSection === "discord" && <DiscordBridgeSection />}
         </div>
       </div>
     </div>

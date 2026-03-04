@@ -17,6 +17,7 @@ import * as engine from './conversation-engine';
 import * as broker from './permission-broker';
 import { deliver, deliverRendered } from './delivery-layer';
 import { markdownToTelegramChunks } from './markdown/telegram';
+import { markdownToDiscordChunks } from './markdown/discord';
 import { getSetting, insertAuditLog, updateChannelBinding } from '../db';
 import { setBridgeModeActive } from '../telegram-bot';
 import { escapeHtml } from './adapters/telegram-utils';
@@ -43,10 +44,18 @@ interface StreamConfig {
   maxChars: number;
 }
 
-function getStreamConfig(): StreamConfig {
-  const intervalMs = parseInt(getSetting('bridge_telegram_stream_interval_ms') || '', 10) || 700;
-  const minDeltaChars = parseInt(getSetting('bridge_telegram_stream_min_delta_chars') || '', 10) || 20;
-  const maxChars = parseInt(getSetting('bridge_telegram_stream_max_chars') || '', 10) || 3900;
+/** Default stream config per channel type. */
+const STREAM_DEFAULTS: Record<string, StreamConfig> = {
+  telegram: { intervalMs: 700, minDeltaChars: 20, maxChars: 3900 },
+  discord: { intervalMs: 1500, minDeltaChars: 40, maxChars: 1900 },
+};
+
+function getStreamConfig(channelType = 'telegram'): StreamConfig {
+  const defaults = STREAM_DEFAULTS[channelType] || STREAM_DEFAULTS.telegram;
+  const prefix = `bridge_${channelType}_stream_`;
+  const intervalMs = parseInt(getSetting(`${prefix}interval_ms`) || '', 10) || defaults.intervalMs;
+  const minDeltaChars = parseInt(getSetting(`${prefix}min_delta_chars`) || '', 10) || defaults.minDeltaChars;
+  const maxChars = parseInt(getSetting(`${prefix}max_chars`) || '', 10) || defaults.maxChars;
   return { intervalMs, minDeltaChars, maxChars };
 }
 
@@ -92,6 +101,19 @@ async function deliverResponse(
     const chunks = markdownToTelegramChunks(responseText, 4096);
     if (chunks.length > 0) {
       return deliverRendered(adapter, address, chunks, { sessionId });
+    }
+    return { ok: true };
+  }
+  if (adapter.channelType === 'discord') {
+    // Discord: native markdown, chunk at 2000 chars with fence repair
+    const chunks = markdownToDiscordChunks(responseText, 2000);
+    for (let i = 0; i < chunks.length; i++) {
+      const result = await deliver(adapter, {
+        address,
+        text: chunks[i].text,
+        parseMode: 'Markdown',
+      }, { sessionId });
+      if (!result.ok) return result;
     }
     return { ok: true };
   }
@@ -461,7 +483,7 @@ async function handleMessage(
     };
   }
 
-  const streamCfg = previewState ? getStreamConfig() : null;
+  const streamCfg = previewState ? getStreamConfig(adapter.channelType) : null;
 
   // Build the onPartialText callback (or undefined if preview not supported)
   const onPartialText = (previewState && streamCfg) ? (fullText: string) => {

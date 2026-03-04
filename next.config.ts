@@ -6,7 +6,7 @@ const pkg = require("./package.json");
 
 const nextConfig: NextConfig = {
   output: 'standalone',
-  serverExternalPackages: ['better-sqlite3'],
+  serverExternalPackages: ['better-sqlite3', 'discord.js', '@discordjs/ws', 'zlib-sync'],
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
   },

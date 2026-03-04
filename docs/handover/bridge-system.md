@@ -27,7 +27,10 @@ src/lib/bridge/
 │   ├── telegram-adapter.ts  # Telegram 长轮询 + offset 安全水位 + 图片/相册处理 + 自注册
 │   ├── telegram-media.ts    # Telegram 图片下载、尺寸选择、base64 转换
 │   ├── telegram-utils.ts    # callTelegramApi / sendMessageDraft / escapeHtml / splitMessage
-│   └── feishu-adapter.ts    # 飞书 WSClient + REST 消息收发 + typing 指示器 + 自注册
+│   ├── feishu-adapter.ts    # 飞书 WSClient + REST 消息收发 + typing 指示器 + 自注册
+│   └── discord-adapter.ts   # Discord.js Client + Gateway intents + 按钮交互 + 流式预览 + 自注册
+├── markdown/
+│   └── discord.ts           # Discord 消息分片（2000 字符限制）+ 代码围栏平衡
 └── security/
     ├── rate-limiter.ts      # 按 chat 滑动窗口限流（20 条/分钟）
     └── validators.ts        # 路径/SessionID/危险输入校验
@@ -51,6 +54,33 @@ src/lib/bridge/
       → 纯文本? → sendAsPost() [msg_type: post, md tag]
     → 权限请求 → sendPermissionCard() [schema 2.0 卡片 + /perm 文本命令]
 ```
+
+### Discord
+
+```
+Discord 消息 → discord.js Client (Gateway WebSocket)
+  → messageCreate → processMessage()
+    → bot/self 过滤 → 去重(messageId Set 1000) → 授权检查(user+channel)
+    → guild 策略过滤(allowed_guilds + group_policy) → @提及检查
+    → !command → /command 规范化
+    → 图片附件 → fetch(url) → base64 FileAttachment
+    → enqueue()
+  → interactionCreate → handleInteraction()
+    → deferUpdate() (3s Discord 超时) → 存储 Interaction(60s TTL) → enqueue(callbackData)
+  → BridgeManager.runAdapterLoop() → handleMessage()
+    → deliverResponse():
+      → markdownToDiscordChunks(2000 字符, 代码围栏平衡) → 逐块发送
+    → 权限请求 → ActionRowBuilder + ButtonBuilder 组件
+    → 流式预览 → channel.send() 首次 / message.edit() 后续 / delete 结束
+    → typing → channel.sendTyping() 每 8s
+```
+
+**Discord 关键设计决策：**
+- **原生 Markdown**：Discord 原生支持 Markdown，无需 IR→HTML 转换（不同于 Telegram）
+- **保守流式默认值**：Discord 编辑限速 5/5s/channel，默认 interval 1500ms, minDelta 40 chars
+- **按钮交互**：deferUpdate() 立即响应（3s Discord 超时），存储 Interaction 对象供 answerCallback 使用，60s TTL 清理
+- **授权默认拒绝**：空白允许列表 = 拒绝所有（安全优先，同飞书模式）
+- **`!` 命令别名**：在 adapter 层规范化为 `/` 命令后入队——bridge-manager 命令处理器无需改动
 
 ### Telegram
 
