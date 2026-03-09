@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { getSetting, getDefaultProviderId, getSession } from '@/lib/db';
+import { getSetting, getSession } from '@/lib/db';
+import { resolveProvider } from '@/lib/provider-resolver';
 import { loadState, saveState, writeDailyMemory } from '@/lib/assistant-workspace';
 import { getLocalDateString } from '@/lib/utils';
 import { generateTextFromProvider } from '@/lib/text-generator';
@@ -42,9 +43,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid answers format' }, { status: 400 });
     }
 
-    // Validate that the calling session belongs to this workspace
+    // Look up the calling session for workspace validation AND provider/model context
+    let session: ReturnType<typeof getSession> | undefined;
     if (sessionId) {
-      const session = getSession(sessionId);
+      session = getSession(sessionId) ?? undefined;
       if (session && session.working_directory !== workspacePath) {
         return NextResponse.json({ error: 'Session does not belong to current workspace' }, { status: 403 });
       }
@@ -66,8 +68,14 @@ export async function POST(request: NextRequest) {
     try { existingUser = fs.readFileSync(userPath, 'utf-8'); } catch { /* new file */ }
 
     try {
-      const providerId = getDefaultProviderId() || '';
-      const model = getSetting('default_model') || 'claude-sonnet-4-20250514';
+      // Resolve using session's provider/model so check-in uses the same provider as chat
+      const resolved = resolveProvider({
+        sessionProviderId: session?.provider_id || undefined,
+        sessionModel: session?.model || undefined,
+      });
+      // Preserve 'env' semantics (see onboarding route for rationale)
+      const providerId = resolved.provider?.id || 'env';
+      const model = resolved.upstreamModel || resolved.model || getSetting('default_model') || 'claude-sonnet-4-20250514';
 
       // Generate daily memory entry (episodic, not destructive)
       const dailyMemoryPrompt = `You maintain daily memory entries for an AI assistant. Given the user's daily check-in answers, generate a daily memory entry for ${today}.

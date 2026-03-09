@@ -1,6 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  SDKMessage,
+  NotificationHookInput,
+  PostToolUseHookInput,
   SDKAssistantMessage,
   SDKUserMessage,
   SDKResultMessage,
@@ -12,15 +13,14 @@ import type {
   McpSSEServerConfig,
   McpHttpServerConfig,
   McpServerConfig,
-  NotificationHookInput,
-  PostToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment, ApiProvider } from '@/types';
+import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment } from '@/types';
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
 import { captureCapabilities } from './agent-sdk-capabilities';
-import { getSetting, getActiveProvider, updateSdkSessionId, createPermissionRequest } from './db';
+import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
+import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
 import { findClaudeBinary, findGitBash, getExpandedPath } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
 import os from 'os';
@@ -293,8 +293,14 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
   return new ReadableStream<string>({
     async start(controller) {
-      // Hoist activeProvider so it's accessible in the catch block for error messages
-      const activeProvider: ApiProvider | undefined = options.provider ?? getActiveProvider();
+      // Resolve provider via the unified resolver. The caller may pass an explicit
+      // provider (from resolveProvider().provider), or undefined when 'env' mode is
+      // intended. We do NOT fall back to getActiveProvider() here — that's handled
+      // inside resolveForClaudeCode() only when no resolution was attempted at all.
+      const resolved = resolveForClaudeCode(options.provider, {
+        providerId: options.providerId,
+        sessionProviderId: options.sessionProviderId,
+      });
 
       try {
         // Build env for the Claude Code subprocess.
@@ -322,54 +328,15 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         }
 
-        if (activeProvider && activeProvider.api_key) {
-          // Clear all existing ANTHROPIC_* variables to prevent conflicts
-          for (const key of Object.keys(sdkEnv)) {
-            if (key.startsWith('ANTHROPIC_')) {
-              delete sdkEnv[key];
-            }
-          }
+        // Build env from resolved provider
+        const resolvedEnv = toClaudeCodeEnv(sdkEnv, resolved);
+        // toClaudeCodeEnv returns a full env — merge back into sdkEnv
+        // (preserves HOME, USERPROFILE, PATH, Git Bash detection set above)
+        Object.assign(sdkEnv, resolvedEnv);
 
-          // Inject provider config — set both token variants so extra_env can clear the unwanted one
-          sdkEnv.ANTHROPIC_AUTH_TOKEN = activeProvider.api_key;
-          sdkEnv.ANTHROPIC_API_KEY = activeProvider.api_key;
-          if (activeProvider.base_url) {
-            sdkEnv.ANTHROPIC_BASE_URL = activeProvider.base_url;
-          }
-
-          // Inject extra environment variables
-          // Empty string values mean "delete this variable" (e.g. clear ANTHROPIC_API_KEY for AUTH_TOKEN-only providers)
-          try {
-            const extraEnv = JSON.parse(activeProvider.extra_env || '{}');
-            for (const [key, value] of Object.entries(extraEnv)) {
-              if (typeof value === 'string') {
-                if (value === '') {
-                  delete sdkEnv[key];
-                } else {
-                  sdkEnv[key] = value;
-                }
-              }
-            }
-          } catch {
-            // ignore malformed extra_env
-          }
-        } else {
-          // No active provider — check legacy DB settings first, then fall back to
-          // environment variables already present in process.env (copied into sdkEnv above).
-          // This allows users who set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL
-          // in their shell environment to use them without configuring a provider in the UI.
-          const appToken = getSetting('anthropic_auth_token');
-          const appBaseUrl = getSetting('anthropic_base_url');
-          if (appToken) {
-            sdkEnv.ANTHROPIC_AUTH_TOKEN = appToken;
-          }
-          if (appBaseUrl) {
-            sdkEnv.ANTHROPIC_BASE_URL = appBaseUrl;
-          }
-          // If neither legacy settings nor env vars provide a key, log a warning
-          if (!appToken && !sdkEnv.ANTHROPIC_API_KEY && !sdkEnv.ANTHROPIC_AUTH_TOKEN) {
-            console.warn('[claude-client] No API key found: no active provider, no legacy settings, and no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN in environment');
-          }
+        // Warn if no credentials found at all
+        if (!resolved.hasCredentials && !sdkEnv.ANTHROPIC_API_KEY && !sdkEnv.ANTHROPIC_AUTH_TOKEN) {
+          console.warn('[claude-client] No API key found: no active provider, no legacy settings, and no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN in environment');
         }
 
         // Check if dangerously_skip_permissions is enabled globally or per-session
@@ -389,9 +356,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           // CodePilot, skip 'user' settings because ~/.claude/settings.json
           // may contain env overrides (ANTHROPIC_BASE_URL, ANTHROPIC_MODEL,
           // etc.) that would conflict with the provider's configuration.
-          settingSources: activeProvider?.api_key
-            ? ['project', 'local']
-            : ['user', 'project', 'local'],
+          settingSources: resolved.settingSources as Options['settingSources'],
         };
 
         if (skipPermissions) {
@@ -762,7 +727,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
         // Fire-and-forget: capture SDK capabilities for UI consumption
         // Scope to provider so different providers don't pollute each other's cache
-        const capProviderId = activeProvider?.api_key ? (options.provider as ApiProvider & { id?: string })?.id || 'custom' : 'env';
+        const capProviderId = resolved.provider?.api_key ? resolved.provider.id || 'custom' : 'env';
         captureCapabilities(sessionId, conversation, capProviderId).catch((err) => {
           console.warn('[claude-client] Capability capture failed:', err);
         });
@@ -960,19 +925,19 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           if (code === 'ENOENT' || rawMessage.includes('ENOENT') || rawMessage.includes('spawn')) {
             errorMessage = `Claude Code CLI not found. Please ensure Claude Code is installed and available in your PATH.\n\nOriginal error: ${rawMessage}`;
           } else if (rawMessage.includes('exited with code 1') || rawMessage.includes('exit code 1')) {
-            const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
+            const providerHint = resolved.provider?.name ? ` (Provider: ${resolved.provider?.name})` : '';
             const detailHint = extraDetail ? `\n\nDetails: ${extraDetail}` : '';
             const hasImages = files && files.some(f => isImageFile(f.type));
             const imageHint = hasImages ? '\n• Provider may not support image/vision input' : '';
             errorMessage = `Claude Code process exited with an error${providerHint}. This is often caused by:\n• Invalid or missing API Key\n• Incorrect Base URL configuration\n• Network connectivity issues${imageHint}${detailHint}\n\nOriginal error: ${rawMessage}`;
           } else if (rawMessage.includes('exited with code')) {
-            const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
+            const providerHint = resolved.provider?.name ? ` (Provider: ${resolved.provider?.name})` : '';
             errorMessage = `Claude Code process crashed unexpectedly${providerHint}.\n\nOriginal error: ${rawMessage}`;
           } else if (code === 'ECONNREFUSED' || rawMessage.includes('ECONNREFUSED') || rawMessage.includes('fetch failed')) {
-            const baseUrl = activeProvider?.base_url || 'default';
+            const baseUrl = resolved.provider?.base_url || 'default';
             errorMessage = `Cannot connect to API endpoint (${baseUrl}). Please check your network connection and Base URL configuration.\n\nOriginal error: ${rawMessage}`;
           } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized') || rawMessage.includes('authentication')) {
-            const providerHint = activeProvider?.name ? ` for provider "${activeProvider.name}"` : '';
+            const providerHint = resolved.provider?.name ? ` for provider "${resolved.provider?.name}"` : '';
             errorMessage = `Authentication failed${providerHint}. Please verify your API Key is correct and has not expired.\n\nOriginal error: ${rawMessage}`;
           } else if (rawMessage.includes('403') || rawMessage.includes('Forbidden')) {
             errorMessage = `Access denied. Your API Key may not have permission for this operation.\n\nOriginal error: ${rawMessage}`;

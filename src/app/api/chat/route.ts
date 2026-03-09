@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
+import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
+import { resolveProvider as resolveProviderUnified } from '@/lib/provider-resolver';
 import { notifySessionStart, notifySessionComplete, notifySessionError } from '@/lib/telegram-bot';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, ClaudeStreamOptions } from '@/types';
 import crypto from 'crypto';
@@ -116,26 +117,15 @@ export async function POST(request: NextRequest) {
       updateSessionModel(session_id, effectiveModel);
     }
 
-    // Resolve provider: explicit provider_id > default_provider_id > environment variables
-    let resolvedProvider: import('@/types').ApiProvider | undefined;
+    // Resolve provider via unified resolver (same logic for chat, bridge, onboarding, etc.)
     const effectiveProviderId = provider_id || session.provider_id || '';
-    if (effectiveProviderId && effectiveProviderId !== 'env') {
-      resolvedProvider = getProvider(effectiveProviderId);
-      if (!resolvedProvider) {
-        // Requested provider not found, try default
-        const defaultId = getDefaultProviderId();
-        if (defaultId) {
-          resolvedProvider = getProvider(defaultId);
-        }
-      }
-    } else if (!effectiveProviderId) {
-      // No provider specified, try default
-      const defaultId = getDefaultProviderId();
-      if (defaultId) {
-        resolvedProvider = getProvider(defaultId);
-      }
-    }
-    // effectiveProviderId === 'env' → resolvedProvider stays undefined → uses env vars
+    const resolved = resolveProviderUnified({
+      providerId: effectiveProviderId || undefined,
+      sessionProviderId: session.provider_id || undefined,
+      model: model || undefined,
+      sessionModel: session.model || undefined,
+    });
+    const resolvedProvider = resolved.provider;
 
     const providerName = resolvedProvider?.name || '';
     if (providerName !== (session.provider_name || '')) {
@@ -329,7 +319,7 @@ Start by greeting the user and asking the first question.
       prompt: content,
       sessionId: session_id,
       sdkSessionId: session.sdk_session_id || undefined,
-      model: effectiveModel,
+      model: resolved.upstreamModel || resolved.model || effectiveModel,
       systemPrompt: finalSystemPrompt,
       workingDirectory: session.sdk_cwd || session.working_directory || undefined,
       abortController,
@@ -338,6 +328,8 @@ Start by greeting the user and asking the first question.
       imageAgentMode: !!systemPromptAppend,
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
+      providerId: effectiveProviderId || undefined,
+      sessionProviderId: session.provider_id || undefined,
       mcpServers,
       conversationHistory: historyMsgs,
       bypassPermissions: session.permission_profile === 'full_access',

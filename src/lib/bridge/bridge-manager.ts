@@ -102,7 +102,7 @@ async function deliverResponse(
   if (adapter.channelType === 'telegram') {
     const chunks = markdownToTelegramChunks(responseText, 4096);
     if (chunks.length > 0) {
-      return deliverRendered(adapter, address, chunks, { sessionId });
+      return deliverRendered(adapter, address, chunks, { sessionId, replyToMessageId });
     }
     return { ok: true };
   }
@@ -722,8 +722,8 @@ async function handleCommand(
         break;
       }
       const binding = router.resolve(msg.address);
-      router.updateBinding(binding.id, { workingDirectory: validatedPath });
-      response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>`;
+      router.updateBinding(binding.id, { workingDirectory: validatedPath, sdkSessionId: '' });
+      response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>\n(SDK session reset — next message starts fresh context)`;
       break;
     }
 

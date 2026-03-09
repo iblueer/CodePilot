@@ -8,8 +8,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import type { ChannelBinding } from './types';
-import type { SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
+import type { SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, MCPServerConfig } from '@/types';
 import { streamClaude } from '../claude-client';
 import {
   addMessage,
@@ -22,11 +23,29 @@ import {
   updateSessionModel,
   syncSdkTasks,
   getSession,
-  getProvider,
-  getDefaultProviderId,
   getSetting,
 } from '../db';
+import { resolveProvider as resolveProviderUnified } from '../provider-resolver';
 import crypto from 'crypto';
+
+/** Read MCP server configs from ~/.claude.json and ~/.claude/settings.json */
+function loadMcpServers(): Record<string, MCPServerConfig> | undefined {
+  try {
+    const readJson = (p: string): Record<string, unknown> => {
+      if (!fs.existsSync(p)) return {};
+      try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return {}; }
+    };
+    const userConfig = readJson(path.join(os.homedir(), '.claude.json'));
+    const settings = readJson(path.join(os.homedir(), '.claude', 'settings.json'));
+    const merged = {
+      ...((userConfig.mcpServers || {}) as Record<string, MCPServerConfig>),
+      ...((settings.mcpServers || {}) as Record<string, MCPServerConfig>),
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface PermissionRequestInfo {
   permissionRequestId: string;
@@ -133,19 +152,16 @@ export async function processMessage(
     }
     addMessage(sessionId, 'user', savedContent);
 
-    // Resolve provider
-    let resolvedProvider: import('@/types').ApiProvider | undefined;
-    const providerId = session?.provider_id || '';
-    if (providerId && providerId !== 'env') {
-      resolvedProvider = getProvider(providerId);
-    }
-    if (!resolvedProvider) {
-      const defaultId = getDefaultProviderId();
-      if (defaultId) resolvedProvider = getProvider(defaultId);
-    }
+    // Resolve provider via unified resolver (same logic as desktop chat route)
+    const resolved = resolveProviderUnified({
+      sessionProviderId: session?.provider_id || undefined,
+      model: binding.model || undefined,
+      sessionModel: session?.model || undefined,
+    });
+    const resolvedProvider = resolved.provider;
 
-    // Effective model
-    const effectiveModel = binding.model || session?.model || getSetting('default_model') || undefined;
+    // Use upstream model from unified resolver (same chain as chat route)
+    const effectiveModel = resolved.upstreamModel || resolved.model || binding.model || session?.model || getSetting('default_model') || undefined;
 
     // Permission mode from binding mode
     let permissionMode: string;
@@ -174,6 +190,10 @@ export async function processMessage(
       }
     }
 
+    // Load MCP servers from Claude config files so the SDK has access to
+    // user-level MCP tools, matching the desktop chat route behavior.
+    const mcpServers = loadMcpServers();
+
     const stream = streamClaude({
       prompt: text,
       sessionId,
@@ -184,6 +204,8 @@ export async function processMessage(
       abortController,
       permissionMode,
       provider: resolvedProvider,
+      sessionProviderId: session?.provider_id || undefined,
+      mcpServers,
       conversationHistory: historyMsgs,
       files,
       bypassPermissions,

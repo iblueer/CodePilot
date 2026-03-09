@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { getSetting, getDefaultProviderId, getSession } from '@/lib/db';
+import { getSetting, getSession } from '@/lib/db';
+import { resolveProvider } from '@/lib/provider-resolver';
 import { loadState, saveState, ensureDailyDir, generateRootDocs } from '@/lib/assistant-workspace';
 import { getLocalDateString } from '@/lib/utils';
 import { generateTextFromProvider } from '@/lib/text-generator';
@@ -62,9 +63,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid answers format' }, { status: 400 });
     }
 
-    // Validate that the calling session belongs to this workspace
+    // Look up the calling session for workspace validation AND provider/model context
+    let session: ReturnType<typeof getSession> | undefined;
     if (sessionId) {
-      const session = getSession(sessionId);
+      session = getSession(sessionId) ?? undefined;
       if (session && session.working_directory !== workspacePath) {
         return NextResponse.json({ error: 'Session does not belong to current workspace' }, { status: 403 });
       }
@@ -82,8 +84,15 @@ export async function POST(request: NextRequest) {
     let memoryContent: string;
 
     try {
-      const providerId = getDefaultProviderId() || '';
-      const model = getSetting('default_model') || 'claude-sonnet-4-20250514';
+      // Resolve using session's provider/model so onboarding uses the same provider as chat
+      const resolved = resolveProvider({
+        sessionProviderId: session?.provider_id || undefined,
+        sessionModel: session?.model || undefined,
+      });
+      // Preserve 'env' semantics: when provider=undefined, pass 'env' so text-generator
+      // uses shell env credentials instead of falling back to a random DB provider
+      const providerId = resolved.provider?.id || 'env';
+      const model = resolved.upstreamModel || resolved.model || getSetting('default_model') || 'claude-sonnet-4-20250514';
 
       const soulPrompt = `Based on the following user onboarding answers, generate a concise "soul.md" file that defines an AI assistant's personality, communication style, and behavioral rules. Write in second person ("You are..."). Keep it under 2000 characters. Use markdown headers and bullet points.\n\n${qaText}`;
 

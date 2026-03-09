@@ -25,12 +25,12 @@ import { Loading02Icon, ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-f
 import type { ApiProvider } from "@/types";
 import { useTranslation } from "@/hooks/useTranslation";
 
-const PROVIDER_PRESETS: Record<string, { base_url: string; extra_env: string }> = {
-  anthropic: { base_url: "https://api.anthropic.com", extra_env: "{}" },
-  openrouter: { base_url: "https://openrouter.ai/api", extra_env: '{"ANTHROPIC_API_KEY":""}' },
-  bedrock: { base_url: "", extra_env: '{"CLAUDE_CODE_USE_BEDROCK":"1","AWS_REGION":"us-east-1","CLAUDE_CODE_SKIP_BEDROCK_AUTH":"1"}' },
-  vertex: { base_url: "", extra_env: '{"CLAUDE_CODE_USE_VERTEX":"1","CLOUD_ML_REGION":"us-east5","CLAUDE_CODE_SKIP_VERTEX_AUTH":"1"}' },
-  custom: { base_url: "", extra_env: "{}" },
+const PROVIDER_PRESETS: Record<string, { base_url: string; extra_env: string; protocol: string }> = {
+  anthropic: { base_url: "https://api.anthropic.com", extra_env: "{}", protocol: "anthropic" },
+  openrouter: { base_url: "https://openrouter.ai/api", extra_env: '{"ANTHROPIC_API_KEY":""}', protocol: "openrouter" },
+  bedrock: { base_url: "", extra_env: '{"CLAUDE_CODE_USE_BEDROCK":"1","AWS_REGION":"us-east-1","CLAUDE_CODE_SKIP_BEDROCK_AUTH":"1"}', protocol: "bedrock" },
+  vertex: { base_url: "", extra_env: '{"CLAUDE_CODE_USE_VERTEX":"1","CLOUD_ML_REGION":"us-east5","CLAUDE_CODE_SKIP_VERTEX_AUTH":"1"}', protocol: "vertex" },
+  custom: { base_url: "", extra_env: "{}", protocol: "openai-compatible" },
 };
 
 const PROVIDER_TYPES = [
@@ -53,9 +53,13 @@ interface ProviderFormProps {
 export interface ProviderFormData {
   name: string;
   provider_type: string;
+  protocol?: string;
   base_url: string;
   api_key: string;
   extra_env: string;
+  headers_json?: string;
+  env_overrides_json?: string;
+  role_models_json?: string;
   notes: string;
 }
 
@@ -73,6 +77,9 @@ export function ProviderForm({
   const [apiKey, setApiKey] = useState("");
   const [extraEnv, setExtraEnv] = useState("{}");
   const [notes, setNotes] = useState("");
+  const [headersJson, setHeadersJson] = useState("{}");
+  const [envOverridesJson, setEnvOverridesJson] = useState("");
+  const [roleModelsJson, setRoleModelsJson] = useState("{}");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -90,11 +97,17 @@ export function ProviderForm({
       setBaseUrl(provider.base_url);
       setApiKey("");
       setExtraEnv(provider.extra_env || "{}");
+      setHeadersJson(provider.headers_json || "{}");
+      setEnvOverridesJson(provider.env_overrides_json || "");
+      setRoleModelsJson(provider.role_models_json || "{}");
       setNotes(provider.notes || "");
-      // Show advanced if extra_env has content
+      // Show advanced if extra_env or new fields have content
       try {
         const parsed = JSON.parse(provider.extra_env || "{}");
-        setShowAdvanced(Object.keys(parsed).length > 0);
+        const hasHeaders = provider.headers_json && provider.headers_json !== "{}";
+        const hasEnvOverrides = provider.env_overrides_json && provider.env_overrides_json !== "";
+        const hasRoleModels = provider.role_models_json && provider.role_models_json !== "{}";
+        setShowAdvanced(Object.keys(parsed).length > 0 || !!hasHeaders || !!hasEnvOverrides || !!hasRoleModels);
       } catch {
         setShowAdvanced(true);
       }
@@ -119,6 +132,9 @@ export function ProviderForm({
       setBaseUrl(PROVIDER_PRESETS.anthropic.base_url);
       setApiKey("");
       setExtraEnv("{}");
+      setHeadersJson("{}");
+      setEnvOverridesJson("");
+      setRoleModelsJson("{}");
       setNotes("");
       setShowAdvanced(false);
     }
@@ -146,23 +162,36 @@ export function ProviderForm({
       return;
     }
 
-    // Validate extra_env JSON
-    try {
-      JSON.parse(extraEnv);
-    } catch {
-      setError("Extra environment variables must be valid JSON");
-      return;
+    // Validate JSON fields
+    for (const [label, val] of [
+      ["Extra environment variables", extraEnv],
+      ["Headers", headersJson],
+      ["Role models", roleModelsJson],
+    ] as const) {
+      if (val && val.trim()) {
+        try { JSON.parse(val); } catch {
+          setError(`${label} must be valid JSON`);
+          return;
+        }
+      }
     }
 
     setSaving(true);
     setError(null);
     try {
+      // Always sync protocol with provider_type to prevent stale protocol after edits
+      const derivedProtocol = PROVIDER_PRESETS[providerType]?.protocol || providerType;
+
       await onSave({
         name: name.trim(),
         provider_type: providerType,
+        protocol: derivedProtocol,
         base_url: baseUrl.trim(),
         api_key: apiKey,
         extra_env: extraEnv,
+        headers_json: headersJson.trim() || "{}",
+        env_overrides_json: envOverridesJson.trim() || "",
+        role_models_json: roleModelsJson.trim() || "{}",
         notes: notes.trim(),
       });
       onOpenChange(false);
@@ -274,6 +303,48 @@ export function ProviderForm({
                   onChange={(e) => setExtraEnv(e.target.value)}
                   className="font-mono text-sm min-h-[80px]"
                   rows={3}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="provider-headers-json" className="text-xs text-muted-foreground">
+                  Headers (JSON)
+                </Label>
+                <Textarea
+                  id="provider-headers-json"
+                  placeholder='{"X-Custom-Header": "value"}'
+                  value={headersJson}
+                  onChange={(e) => setHeadersJson(e.target.value)}
+                  className="font-mono text-sm min-h-[60px]"
+                  rows={2}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="provider-env-overrides" className="text-xs text-muted-foreground">
+                  Env Overrides (JSON)
+                </Label>
+                <Textarea
+                  id="provider-env-overrides"
+                  placeholder='{"CLAUDE_CODE_USE_BEDROCK": "1"}'
+                  value={envOverridesJson}
+                  onChange={(e) => setEnvOverridesJson(e.target.value)}
+                  className="font-mono text-sm min-h-[60px]"
+                  rows={2}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="provider-role-models" className="text-xs text-muted-foreground">
+                  Role Models (JSON)
+                </Label>
+                <Textarea
+                  id="provider-role-models"
+                  placeholder='{"default": "sonnet", "reasoning": "opus", "small": "haiku"}'
+                  value={roleModelsJson}
+                  onChange={(e) => setRoleModelsJson(e.target.value)}
+                  className="font-mono text-sm min-h-[60px]"
+                  rows={2}
                 />
               </div>
 

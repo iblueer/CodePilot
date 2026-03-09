@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { streamTextFromProvider } from '@/lib/text-generator';
-import { getDb } from '@/lib/db';
+import { resolveProvider } from '@/lib/provider-resolver';
 import fs from 'fs';
 import type { PlanMediaJobRequest } from '@/types';
 
@@ -49,27 +49,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Resolve the provider and model from the session or defaults
-    const db = getDb();
-    let providerId = '';
-    let modelId = '';
-
+    let session: { provider_id: string; model: string } | undefined;
     if (body.sessionId) {
-      const session = db.prepare('SELECT provider_id, model FROM chat_sessions WHERE id = ?').get(body.sessionId) as { provider_id: string; model: string } | undefined;
-      if (session) {
-        providerId = session.provider_id;
-        modelId = session.model;
-      }
+      const { getDb } = await import('@/lib/db');
+      const db = getDb();
+      session = db.prepare('SELECT provider_id, model FROM chat_sessions WHERE id = ?').get(body.sessionId) as { provider_id: string; model: string } | undefined;
     }
 
-    // Fallback to default provider
-    if (!providerId) {
-      const defaultId = db.prepare("SELECT value FROM settings WHERE key = 'default_provider_id'").get() as { value: string } | undefined;
-      providerId = defaultId?.value || '';
-    }
-    if (!modelId) {
-      const defaultModel = db.prepare("SELECT value FROM settings WHERE key = 'default_model'").get() as { value: string } | undefined;
-      modelId = defaultModel?.value || 'claude-sonnet-4-20250514';
-    }
+    const resolved = resolveProvider({
+      sessionProviderId: session?.provider_id || undefined,
+      sessionModel: session?.model || undefined,
+    });
+    // Preserve 'env' semantics (see onboarding route for rationale)
+    const providerId = resolved.provider?.id || 'env';
+    const modelId = resolved.upstreamModel || resolved.model || session?.model || 'claude-sonnet-4-20250514';
 
     // Read document content
     let docContent = body.docContent || '';

@@ -397,6 +397,43 @@ function migrateDb(db: Database.Database): void {
     );
   `);
 
+  // Add new provider fields (protocol, headers, env_overrides, role_models)
+  {
+    const providerCols = db.prepare("PRAGMA table_info(api_providers)").all() as { name: string }[];
+    const provColNames = providerCols.map(c => c.name);
+    if (!provColNames.includes('protocol')) {
+      db.exec("ALTER TABLE api_providers ADD COLUMN protocol TEXT NOT NULL DEFAULT ''");
+    }
+    if (!provColNames.includes('headers_json')) {
+      db.exec("ALTER TABLE api_providers ADD COLUMN headers_json TEXT NOT NULL DEFAULT '{}'");
+    }
+    if (!provColNames.includes('env_overrides_json')) {
+      db.exec("ALTER TABLE api_providers ADD COLUMN env_overrides_json TEXT NOT NULL DEFAULT ''");
+    }
+    if (!provColNames.includes('role_models_json')) {
+      db.exec("ALTER TABLE api_providers ADD COLUMN role_models_json TEXT NOT NULL DEFAULT '{}'");
+    }
+  }
+
+  // Create provider_models table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS provider_models (
+      id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      upstream_model_id TEXT NOT NULL DEFAULT '',
+      display_name TEXT NOT NULL DEFAULT '',
+      capabilities_json TEXT NOT NULL DEFAULT '{}',
+      variants_json TEXT NOT NULL DEFAULT '{}',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (provider_id) REFERENCES api_providers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(provider_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_models_provider_model ON provider_models(provider_id, model_id);
+  `);
+
   // Ensure media_generations table exists for databases created before this migration
   db.exec(`
     CREATE TABLE IF NOT EXISTS media_generations (
@@ -1018,16 +1055,21 @@ export function createProvider(data: CreateProviderRequest): ApiProvider {
   const sortOrder = (maxRow.max_order ?? -1) + 1;
 
   db.prepare(
-    'INSERT INTO api_providers (id, name, provider_type, base_url, api_key, is_active, sort_order, extra_env, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    `INSERT INTO api_providers (id, name, provider_type, protocol, base_url, api_key, is_active, sort_order, extra_env, headers_json, env_overrides_json, role_models_json, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     data.name,
     data.provider_type || 'anthropic',
+    data.protocol || '',
     data.base_url || '',
     data.api_key || '',
     0,
     sortOrder,
     data.extra_env || '{}',
+    data.headers_json || '{}',
+    data.env_overrides_json || '',
+    data.role_models_json || '{}',
     data.notes || '',
     now,
     now,
@@ -1044,15 +1086,21 @@ export function updateProvider(id: string, data: UpdateProviderRequest): ApiProv
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
   const name = data.name ?? existing.name;
   const providerType = data.provider_type ?? existing.provider_type;
+  const protocol = data.protocol ?? existing.protocol;
   const baseUrl = data.base_url ?? existing.base_url;
   const apiKey = data.api_key ?? existing.api_key;
   const extraEnv = data.extra_env ?? existing.extra_env;
+  const headersJson = data.headers_json ?? existing.headers_json;
+  const envOverridesJson = data.env_overrides_json ?? existing.env_overrides_json;
+  const roleModelsJson = data.role_models_json ?? existing.role_models_json;
   const notes = data.notes ?? existing.notes;
   const sortOrder = data.sort_order ?? existing.sort_order;
 
   db.prepare(
-    'UPDATE api_providers SET name = ?, provider_type = ?, base_url = ?, api_key = ?, extra_env = ?, notes = ?, sort_order = ?, updated_at = ? WHERE id = ?'
-  ).run(name, providerType, baseUrl, apiKey, extraEnv, notes, sortOrder, now, id);
+    `UPDATE api_providers SET name = ?, provider_type = ?, protocol = ?, base_url = ?, api_key = ?,
+     extra_env = ?, headers_json = ?, env_overrides_json = ?, role_models_json = ?,
+     notes = ?, sort_order = ?, updated_at = ? WHERE id = ?`
+  ).run(name, providerType, protocol, baseUrl, apiKey, extraEnv, headersJson, envOverridesJson, roleModelsJson, notes, sortOrder, now, id);
 
   return getProvider(id);
 }
@@ -1060,6 +1108,58 @@ export function updateProvider(id: string, data: UpdateProviderRequest): ApiProv
 export function deleteProvider(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM api_providers WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+// ── Provider Models ─────────────────────────────────────────────
+
+export function getModelsForProvider(providerId: string): import('@/types').ProviderModel[] {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM provider_models WHERE provider_id = ? AND enabled = 1 ORDER BY sort_order ASC, created_at ASC'
+  ).all(providerId) as import('@/types').ProviderModel[];
+}
+
+export function upsertProviderModel(data: {
+  provider_id: string;
+  model_id: string;
+  upstream_model_id?: string;
+  display_name?: string;
+  capabilities_json?: string;
+  variants_json?: string;
+  sort_order?: number;
+  enabled?: number;
+}): void {
+  const db = getDb();
+  const id = crypto.randomBytes(16).toString('hex');
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(
+    `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(provider_id, model_id) DO UPDATE SET
+       upstream_model_id = excluded.upstream_model_id,
+       display_name = excluded.display_name,
+       capabilities_json = excluded.capabilities_json,
+       variants_json = excluded.variants_json,
+       sort_order = excluded.sort_order,
+       enabled = excluded.enabled`
+  ).run(
+    id,
+    data.provider_id,
+    data.model_id,
+    data.upstream_model_id || '',
+    data.display_name || '',
+    data.capabilities_json || '{}',
+    data.variants_json || '{}',
+    data.sort_order ?? 0,
+    data.enabled ?? 1,
+    now,
+  );
+}
+
+export function deleteProviderModel(providerId: string, modelId: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM provider_models WHERE provider_id = ? AND model_id = ?').run(providerId, modelId);
   return result.changes > 0;
 }
 

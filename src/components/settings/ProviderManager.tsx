@@ -89,26 +89,31 @@ interface QuickPreset {
   icon: ReactNode;
   // Pre-filled provider data
   provider_type: string;
+  /** Wire protocol — determines how the provider is dispatched at runtime */
+  protocol: string;
   base_url: string;
   extra_env: string;
   // Which fields user must fill
-  fields: ("name" | "api_key" | "base_url" | "extra_env" | "model_names")[];
+  fields: ("name" | "api_key" | "base_url" | "extra_env" | "model_names" | "model_mapping")[];
   // Category: 'chat' (default) or 'media'
   category?: "chat" | "media";
 }
 
 const QUICK_PRESETS: QuickPreset[] = [
+  // ── Custom endpoints ──
   {
-    key: "custom-api",
-    name: "Custom API",
-    description: "Custom API endpoint — fill in all fields",
-    descriptionZh: "自定义 API 端点 — 填写所有信息",
+    key: "custom-openai",
+    name: "Custom API (OpenAI-compatible)",
+    description: "OpenAI-compatible custom endpoint",
+    descriptionZh: "自定义 OpenAI 兼容 API 端点",
     icon: <HugeiconsIcon icon={Settings02Icon} className="h-[18px] w-[18px] text-muted-foreground" />,
     provider_type: "custom",
+    protocol: "openai-compatible",
     base_url: "",
     extra_env: "{}",
     fields: ["name", "api_key", "base_url", "extra_env"],
   },
+  // ── Anthropic-compatible services ──
   {
     key: "anthropic-thirdparty",
     name: "Anthropic Third-party API",
@@ -116,9 +121,10 @@ const QUICK_PRESETS: QuickPreset[] = [
     descriptionZh: "Anthropic 兼容第三方 API — 填写地址和密钥",
     icon: <Anthropic size={18} />,
     provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "",
     extra_env: '{"ANTHROPIC_API_KEY":""}',
-    fields: ["name", "api_key", "base_url", "model_names"],
+    fields: ["name", "api_key", "base_url", "model_mapping"],
   },
   {
     key: "anthropic-official",
@@ -127,6 +133,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     descriptionZh: "Anthropic 官方 API",
     icon: <Anthropic size={18} />,
     provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://api.anthropic.com",
     extra_env: "{}",
     fields: ["api_key"],
@@ -138,6 +145,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     descriptionZh: "通过 OpenRouter 访问多种模型",
     icon: <OpenRouter size={18} />,
     provider_type: "openrouter",
+    protocol: "openrouter",
     base_url: "https://openrouter.ai/api",
     extra_env: '{"ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
@@ -148,7 +156,8 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "Zhipu GLM Code Plan — China region",
     descriptionZh: "智谱 GLM 编程套餐 — 中国区",
     icon: <Zhipu size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://open.bigmodel.cn/api/anthropic",
     extra_env: '{"API_TIMEOUT_MS":"3000000","ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
@@ -159,7 +168,8 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "Zhipu GLM Code Plan — Global region",
     descriptionZh: "智谱 GLM 编程套餐 — 国际区",
     icon: <Zhipu size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://api.z.ai/api/anthropic",
     extra_env: '{"API_TIMEOUT_MS":"3000000","ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
@@ -170,7 +180,8 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "Kimi Coding Plan API",
     descriptionZh: "Kimi 编程计划 API",
     icon: <Kimi size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://api.kimi.com/coding/",
     extra_env: '{"ANTHROPIC_AUTH_TOKEN":""}',
     fields: ["api_key"],
@@ -181,7 +192,8 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "Moonshot AI API",
     descriptionZh: "月之暗面 API",
     icon: <Moonshot size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://api.moonshot.cn/anthropic",
     extra_env: '{"ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
@@ -192,7 +204,8 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "MiniMax Code Plan — China region",
     descriptionZh: "MiniMax 编程套餐 — 中国区",
     icon: <Minimax size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://api.minimaxi.com/anthropic",
     extra_env: '{"API_TIMEOUT_MS":"3000000","CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
@@ -203,7 +216,8 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "MiniMax Code Plan — Global region",
     descriptionZh: "MiniMax 编程套餐 — 国际区",
     icon: <Minimax size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://api.minimax.io/anthropic",
     extra_env: '{"API_TIMEOUT_MS":"3000000","CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"1","ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
@@ -214,7 +228,8 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "Volcengine Ark Coding Plan — Doubao, GLM, DeepSeek, Kimi",
     descriptionZh: "字节火山方舟 Coding Plan — 豆包、GLM、DeepSeek、Kimi",
     icon: <Volcengine size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://ark.cn-beijing.volces.com/api/coding",
     extra_env: '{"ANTHROPIC_AUTH_TOKEN":""}',
     fields: ["api_key", "model_names"],
@@ -225,11 +240,13 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "Aliyun Bailian Coding Plan — Qwen, GLM, Kimi, MiniMax",
     descriptionZh: "阿里云百炼 Coding Plan — 通义千问、GLM、Kimi、MiniMax",
     icon: <Bailian size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
     extra_env: '{"ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
   },
+  // ── Cloud platform providers ──
   {
     key: "bedrock",
     name: "AWS Bedrock",
@@ -237,6 +254,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     descriptionZh: "Amazon Bedrock — 需要 AWS 凭证",
     icon: <Bedrock size={18} />,
     provider_type: "bedrock",
+    protocol: "bedrock",
     base_url: "",
     extra_env: '{"CLAUDE_CODE_USE_BEDROCK":"1","AWS_REGION":"us-east-1","CLAUDE_CODE_SKIP_BEDROCK_AUTH":"1"}',
     fields: ["extra_env"],
@@ -248,21 +266,25 @@ const QUICK_PRESETS: QuickPreset[] = [
     descriptionZh: "Google Vertex AI — 需要 GCP 凭证",
     icon: <Google size={18} />,
     provider_type: "vertex",
+    protocol: "vertex",
     base_url: "",
     extra_env: '{"CLAUDE_CODE_USE_VERTEX":"1","CLOUD_ML_REGION":"us-east5","CLAUDE_CODE_SKIP_VERTEX_AUTH":"1"}',
     fields: ["extra_env"],
   },
+  // ── Proxy / gateway ──
   {
     key: "litellm",
     name: "LiteLLM",
     description: "LiteLLM proxy — local or remote",
     descriptionZh: "LiteLLM 代理 — 本地或远程",
     icon: <HugeiconsIcon icon={ServerStack01Icon} className="h-[18px] w-[18px] text-muted-foreground" />,
-    provider_type: "custom",
+    provider_type: "anthropic",
+    protocol: "anthropic",
     base_url: "http://localhost:4000",
     extra_env: "{}",
     fields: ["api_key", "base_url"],
   },
+  // ── Media providers ──
   {
     key: "gemini-image",
     name: "Google Gemini (Image)",
@@ -270,6 +292,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     descriptionZh: "Nano Banana Pro — Google Gemini AI 图片生成",
     icon: <Google size={18} />,
     provider_type: "gemini-image",
+    protocol: "gemini-image",
     base_url: "https://generativelanguage.googleapis.com/v1beta",
     extra_env: '{"GEMINI_API_KEY":""}',
     fields: ["api_key"],
@@ -314,6 +337,10 @@ function PresetConnectDialog({
   const [name, setName] = useState("");
   const [extraEnv, setExtraEnv] = useState("{}");
   const [modelName, setModelName] = useState("");
+  // Model mapping fields (sonnet/opus/haiku → actual API model IDs)
+  const [mapSonnet, setMapSonnet] = useState("");
+  const [mapOpus, setMapOpus] = useState("");
+  const [mapHaiku, setMapHaiku] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -328,6 +355,9 @@ function PresetConnectDialog({
     setName(preset.name);
     setExtraEnv(preset.extra_env);
     setModelName("");
+    setMapSonnet("");
+    setMapOpus("");
+    setMapHaiku("");
     setError(null);
     setSaving(false);
     setShowAdvanced(false);
@@ -339,15 +369,31 @@ function PresetConnectDialog({
     e.preventDefault();
     setError(null);
 
-    let finalExtraEnv = extraEnv;
+    const finalExtraEnv = extraEnv;
+    let roleModelsJson = "{}";
 
-    // Inject model name into extra_env if model_names field is used
+    // Model mapping (sonnet/opus/haiku → actual API model IDs)
+    if (preset.fields.includes("model_mapping")) {
+      const hasAny = mapSonnet.trim() || mapOpus.trim() || mapHaiku.trim();
+      if (hasAny) {
+        // If user fills any, all 3 are required
+        if (!mapSonnet.trim() || !mapOpus.trim() || !mapHaiku.trim()) {
+          setError(isZh
+            ? '模型映射需要同时填写 Sonnet、Opus、Haiku 三个模型名称'
+            : 'Model mapping requires all 3 model names (Sonnet, Opus, Haiku)');
+          return;
+        }
+        roleModelsJson = JSON.stringify({
+          sonnet: mapSonnet.trim(),
+          opus: mapOpus.trim(),
+          haiku: mapHaiku.trim(),
+        });
+      }
+    }
+
+    // Inject model name into role_models_json (preferred) instead of extra_env.ANTHROPIC_MODEL
     if (preset.fields.includes("model_names") && modelName.trim()) {
-      try {
-        const envObj = JSON.parse(finalExtraEnv);
-        envObj["ANTHROPIC_MODEL"] = modelName.trim();
-        finalExtraEnv = JSON.stringify(envObj);
-      } catch { /* use as-is */ }
+      roleModelsJson = JSON.stringify({ default: modelName.trim() });
     }
 
     // Validate extra_env JSON
@@ -363,9 +409,11 @@ function PresetConnectDialog({
       await onAdd({
         name: name.trim() || preset.name,
         provider_type: preset.provider_type,
+        protocol: preset.protocol,
         base_url: baseUrl.trim(),
         api_key: apiKey,
         extra_env: finalExtraEnv,
+        role_models_json: roleModelsJson,
         notes: "",
       });
       onOpenChange(false);
@@ -477,14 +525,53 @@ function PresetConnectDialog({
                 {t('provider.advancedOptions')}
               </button>
               {showAdvanced && (
-                <div className="space-y-2 border-t border-border/50 pt-3">
-                  <Label className="text-xs text-muted-foreground">{t('provider.extraEnvVars')} (JSON)</Label>
-                  <Textarea
-                    value={extraEnv}
-                    onChange={(e) => setExtraEnv(e.target.value)}
-                    className="text-sm font-mono min-h-[60px]"
-                    rows={3}
-                  />
+                <div className="space-y-4 border-t border-border/50 pt-3">
+                  {/* Model mapping (sonnet/opus/haiku → API model IDs) */}
+                  {preset.fields.includes("model_mapping") && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">
+                        {isZh ? '模型名称映射' : 'Model Name Mapping'}
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {isZh
+                          ? '如果服务商使用不同的模型名称（如 claude-sonnet-4-6），在此映射。留空则使用默认名称（sonnet / opus / haiku）。'
+                          : 'Map model names if the provider uses different IDs (e.g. claude-sonnet-4-6). Leave empty to use defaults (sonnet / opus / haiku).'}
+                      </p>
+                      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
+                        <span className="text-xs text-muted-foreground text-right">Sonnet</span>
+                        <Input
+                          value={mapSonnet}
+                          onChange={(e) => setMapSonnet(e.target.value)}
+                          placeholder="claude-sonnet-4-6"
+                          className="text-sm font-mono h-8"
+                        />
+                        <span className="text-xs text-muted-foreground text-right">Opus</span>
+                        <Input
+                          value={mapOpus}
+                          onChange={(e) => setMapOpus(e.target.value)}
+                          placeholder="claude-opus-4-6"
+                          className="text-sm font-mono h-8"
+                        />
+                        <span className="text-xs text-muted-foreground text-right">Haiku</span>
+                        <Input
+                          value={mapHaiku}
+                          onChange={(e) => setMapHaiku(e.target.value)}
+                          placeholder="claude-haiku-4-5-20251001"
+                          className="text-sm font-mono h-8"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">{t('provider.extraEnvVars')} (JSON)</Label>
+                    <Textarea
+                      value={extraEnv}
+                      onChange={(e) => setExtraEnv(e.target.value)}
+                      className="text-sm font-mono min-h-[60px]"
+                      rows={3}
+                    />
+                  </div>
                 </div>
               )}
             </>

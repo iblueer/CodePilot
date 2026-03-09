@@ -108,12 +108,20 @@ export interface Setting {
 export interface ApiProvider {
   id: string;
   name: string;
-  provider_type: string; // 'anthropic' | 'openrouter' | 'bedrock' | 'vertex' | 'custom'
+  provider_type: string; // legacy: 'anthropic' | 'openrouter' | 'bedrock' | 'vertex' | 'custom'
+  /** Wire protocol — new field, takes precedence over provider_type for dispatch */
+  protocol: string; // 'anthropic' | 'openai-compatible' | 'openrouter' | 'bedrock' | 'vertex' | 'google' | 'gemini-image'
   base_url: string;
   api_key: string;
   is_active: number; // SQLite boolean: 0 or 1
   sort_order: number;
-  extra_env: string; // JSON string of Record<string, string>
+  extra_env: string; // JSON string of Record<string, string> (legacy, prefer env_overrides_json)
+  /** Extra headers to send with API requests — JSON string of Record<string, string> */
+  headers_json: string;
+  /** Environment overrides for Claude Code SDK subprocess — JSON string of Record<string, string> */
+  env_overrides_json: string;
+  /** Semantic model role mapping — JSON string of { default?, reasoning?, small?, haiku?, sonnet?, opus? } */
+  role_models_json: string;
   notes: string;
   created_at: string;
   updated_at: string;
@@ -124,31 +132,55 @@ export interface ProviderModelGroup {
   provider_name: string;
   provider_type: string;
   models: Array<{
-    value: string;
-    label: string;
+    value: string;           // internal/UI model ID
+    label: string;           // display name
+    upstreamModelId?: string; // actual API model ID (if different from value)
     contextWindow?: number;
     description?: string;
     supportsEffort?: boolean;
     supportedEffortLevels?: string[];
     supportsAdaptiveThinking?: boolean;
+    capabilities?: Record<string, unknown>;
+    variants?: Record<string, unknown>;
   }>;
+}
+
+export interface ProviderModel {
+  id: string;
+  provider_id: string;
+  model_id: string;
+  upstream_model_id: string;
+  display_name: string;
+  capabilities_json: string;
+  variants_json: string;
+  sort_order: number;
+  enabled: number; // SQLite boolean
+  created_at: string;
 }
 
 export interface CreateProviderRequest {
   name: string;
   provider_type?: string;
+  protocol?: string;
   base_url?: string;
   api_key?: string;
   extra_env?: string;
+  headers_json?: string;
+  env_overrides_json?: string;
+  role_models_json?: string;
   notes?: string;
 }
 
 export interface UpdateProviderRequest {
   name?: string;
   provider_type?: string;
+  protocol?: string;
   base_url?: string;
   api_key?: string;
   extra_env?: string;
+  headers_json?: string;
+  env_overrides_json?: string;
+  role_models_json?: string;
   notes?: string;
   sort_order?: number;
 }
@@ -821,6 +853,10 @@ export interface ClaudeStreamOptions {
   imageAgentMode?: boolean;
   toolTimeoutSeconds?: number;
   provider?: ApiProvider;
+  /** Explicit provider ID (e.g. 'env') — passed to resolveForClaudeCode */
+  providerId?: string;
+  /** Session's stored provider ID — passed to resolveForClaudeCode */
+  sessionProviderId?: string;
   /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onRuntimeStatusChange?: (status: string) => void;
