@@ -193,6 +193,7 @@ function buildCliArgs(params: {
   resumeSessionId?: string;
   skipPermissions: boolean;
   permissionMode?: string;
+  allowedTools?: string[];
   systemPrompt?: string;
   maxTurns?: number;
   thinking?: ClaudeStreamOptions['thinking'];
@@ -220,6 +221,10 @@ function buildCliArgs(params: {
     let cliMode = params.permissionMode;
     if (cliMode === 'code') cliMode = 'acceptEdits';
     args.push('--permission-mode', cliMode);
+  }
+
+  if (!params.skipPermissions && params.allowedTools && params.allowedTools.length > 0) {
+    args.push('--allowedTools', params.allowedTools.join(','));
   }
 
   if (params.systemPrompt) {
@@ -344,6 +349,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     onRuntimeStatusChange,
     imageAgentMode,
     bypassPermissions: sessionBypassPermissions,
+    allowedTools: optionAllowedTools,
     thinking,
     effort,
     autoTrigger,
@@ -398,12 +404,27 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // Build the final prompt with file attachments and optional history
         const finalPrompt = buildFinalPrompt(!shouldResume);
 
+        // Resolve allowed tools: use option override, or read from settings
+        let allowedTools: string[] | undefined = optionAllowedTools;
+        if (!skipPermissions && !allowedTools) {
+          const raw = getSetting('allowed_tools');
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                allowedTools = parsed;
+              }
+            } catch { /* ignore malformed */ }
+          }
+        }
+
         // Build CLI args
         const cliArgs = buildCliArgs({
           model,
           resumeSessionId: shouldResume ? sdkSessionId : undefined,
           skipPermissions,
           permissionMode: skipPermissions ? undefined : permissionMode,
+          allowedTools: skipPermissions ? undefined : allowedTools,
           systemPrompt,
           thinking,
           effort,

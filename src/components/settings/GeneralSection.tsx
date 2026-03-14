@@ -126,8 +126,15 @@ export function GeneralSection() {
   const [skipPermissions, setSkipPermissions] = useState(false);
   const [showSkipPermWarning, setShowSkipPermWarning] = useState(false);
   const [skipPermSaving, setSkipPermSaving] = useState(false);
+  const [allowedTools, setAllowedTools] = useState<string[]>([]);
   const { accountInfo } = useAccountInfo();
   const { t, locale, setLocale } = useTranslation();
+
+  const ALL_TOOLS = [
+    'Task', 'TaskOutput', 'Bash', 'Glob', 'Grep', 'ExitPlanMode',
+    'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'TodoWrite',
+    'WebSearch', 'TaskStop', 'AskUserQuestion', 'Skill', 'EnterPlanMode', 'ToolSearch',
+  ];
 
   const fetchAppSettings = useCallback(async () => {
     try {
@@ -136,6 +143,12 @@ export function GeneralSection() {
         const data = await res.json();
         const appSettings = data.settings || {};
         setSkipPermissions(appSettings.dangerously_skip_permissions === "true");
+        if (appSettings.allowed_tools) {
+          try {
+            const parsed = JSON.parse(appSettings.allowed_tools);
+            if (Array.isArray(parsed)) setAllowedTools(parsed);
+          } catch { /* ignore */ }
+        }
       }
     } catch {
       // ignore
@@ -175,6 +188,28 @@ export function GeneralSection() {
     }
   };
 
+  const saveAllowedTools = async (tools: string[]) => {
+    setAllowedTools(tools);
+    try {
+      await fetch("/api/settings/app", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: { allowed_tools: tools.length > 0 ? JSON.stringify(tools) : "" },
+        }),
+      });
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleTool = (tool: string) => {
+    const next = allowedTools.includes(tool)
+      ? allowedTools.filter((t) => t !== tool)
+      : [...allowedTools, tool];
+    saveAllowedTools(next);
+  };
+
   return (
     <div className="max-w-3xl space-y-6">
       <UpdateCard />
@@ -197,6 +232,55 @@ export function GeneralSection() {
             <span className="h-2 w-2 shrink-0 rounded-full bg-status-warning inline-block mr-1" />
             {t('settings.autoApproveWarning')}
           </StatusBanner>
+        )}
+
+        {/* Allowed tools whitelist — visible when auto-approve is OFF */}
+        {!skipPermissions && (
+          <div className="space-y-2 pt-2 pb-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">{t('settings.allowedToolsTitle')}</p>
+                <p className="text-xs text-muted-foreground">{t('settings.allowedToolsDesc')}</p>
+              </div>
+              <div className="flex gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-[10px] h-6 px-2"
+                  onClick={() => saveAllowedTools([...ALL_TOOLS])}
+                >
+                  {t('settings.selectAll')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-[10px] h-6 px-2"
+                  onClick={() => saveAllowedTools([])}
+                >
+                  {t('settings.deselectAll')}
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {ALL_TOOLS.map((tool) => {
+                const isSelected = allowedTools.includes(tool);
+                return (
+                  <button
+                    key={tool}
+                    type="button"
+                    onClick={() => toggleTool(tool)}
+                    className={`rounded-md border px-2 py-1 text-xs font-mono transition-colors ${
+                      isSelected
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {tool}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* Language picker */}

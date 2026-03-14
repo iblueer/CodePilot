@@ -1076,6 +1076,8 @@ export interface ClaudeStreamOptions {
   onRuntimeStatusChange?: (status: string) => void;
   /** Per-session bypass: when true, skip all permission checks for this session */
   bypassPermissions?: boolean;
+  /** Explicit list of tool names to allow (passed as --allowedTools to CLI) */
+  allowedTools?: string[];
   /** Thinking configuration for the query */
   thinking?: { type: 'adaptive' } | { type: 'enabled'; budgetTokens?: number } | { type: 'disabled' };
   /** Effort level for the query */
