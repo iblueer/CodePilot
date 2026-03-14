@@ -202,6 +202,7 @@ function buildCliArgs(params: {
     '--print',
     '--output-format', 'stream-json',
     '--verbose',
+    '--include-partial-messages',
   ];
 
   if (params.model) {
@@ -533,12 +534,12 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               case 'assistant': {
                 const assistantMsg = msg as unknown as CliAssistantMessage;
                 // Process content blocks from the assistant message
+                // Note: with --include-partial-messages, text was already streamed via
+                // stream_event/content_block_delta. Skip text blocks here to avoid duplication.
+                // Only process tool_use blocks from the complete assistant message.
                 if (assistantMsg.message?.content) {
                   for (const block of assistantMsg.message.content) {
-                    if (block.type === 'text' && block.text) {
-                      // Emit text blocks as streaming text events
-                      controller.enqueue(formatSSE({ type: 'text', data: block.text }));
-                    } else if (block.type === 'tool_use') {
+                    if (block.type === 'tool_use') {
                       controller.enqueue(formatSSE({
                         type: 'tool_use',
                         data: JSON.stringify({
@@ -624,6 +625,19 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                 if (delta?.type === 'text_delta' && delta.text) {
                   controller.enqueue(formatSSE({ type: 'text', data: delta.text }));
                 }
+                break;
+              }
+
+              case 'stream_event': {
+                // --include-partial-messages wraps API events in { type: 'stream_event', event: {...} }
+                const innerEvent = (msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
+                if (innerEvent?.type === 'content_block_delta') {
+                  const delta = innerEvent.delta;
+                  if (delta?.type === 'text_delta' && delta.text) {
+                    controller.enqueue(formatSSE({ type: 'text', data: delta.text }));
+                  }
+                }
+                // Other stream_event types (message_start, content_block_start/stop, message_stop) are informational
                 break;
               }
 
