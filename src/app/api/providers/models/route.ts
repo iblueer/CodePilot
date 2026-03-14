@@ -64,27 +64,8 @@ export async function GET() {
       }),
     });
 
-    // If SDK has discovered models, use them for the env group
-    try {
-      const { getCachedModels } = await import('@/lib/agent-sdk-capabilities');
-      const sdkModels = getCachedModels('env');
-      if (sdkModels.length > 0) {
-        groups[0].models = sdkModels.map(m => {
-          const cw = getContextWindow(m.value);
-          return {
-            value: m.value,
-            label: m.displayName,
-            description: m.description,
-            supportsEffort: m.supportsEffort,
-            supportedEffortLevels: m.supportedEffortLevels,
-            supportsAdaptiveThinking: m.supportsAdaptiveThinking,
-            ...(cw != null ? { contextWindow: cw } : {}),
-          };
-        });
-      }
-    } catch {
-      // SDK capabilities not available, keep defaults
-    }
+    // In CLI mode, SDK model discovery is not available.
+    // The DEFAULT_MODELS list above is used as-is.
 
     // Build a group for each configured provider
     for (const provider of providers) {

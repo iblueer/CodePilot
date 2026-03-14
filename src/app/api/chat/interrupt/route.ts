@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ interrupted: false });
     }
 
-    await conversation.interrupt();
+    // In CLI mode, send SIGINT to the child process to interrupt it
+    conversation.kill('SIGINT');
 
     return NextResponse.json({ interrupted: true });
   } catch (error) {

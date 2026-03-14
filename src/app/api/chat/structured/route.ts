@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { Options, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
+import { spawn } from 'child_process';
+import readline from 'readline';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,54 +28,71 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const queryOptions: Partial<Options> = {
-      cwd: options?.cwd || process.cwd(),
-      model: options?.model,
-      outputFormat,
-    };
+    // Build a system prompt that instructs Claude to output valid JSON matching the schema
+    const schemaStr = JSON.stringify(outputFormat.schema, null, 2);
+    const structuredPrompt = `${prompt}\n\nIMPORTANT: You MUST respond with ONLY a valid JSON object matching this JSON schema. No markdown, no explanation, just the JSON.\n\nSchema:\n${schemaStr}`;
 
-    // Collect the result message which contains structured_output
-    let structuredOutput: unknown = undefined;
+    // Build CLI args
+    const args = ['--print', structuredPrompt, '--output-format', 'stream-json', '--verbose'];
+    if (options?.model) {
+      args.push('--model', options.model);
+    }
+
+    const child = spawn('claude', args, {
+      cwd: options?.cwd || process.cwd(),
+      env: process.env as NodeJS.ProcessEnv,
+      stdio: 'pipe',
+    });
+
     let resultText = '';
 
-    for await (const message of query({
-      prompt,
-      options: queryOptions as Options,
-    })) {
-      if (message.type === 'result' && message.subtype === 'success') {
-        const successResult = message as SDKResultSuccess;
-        // Primary path: read structured_output directly from the SDK result
-        if (successResult.structured_output !== undefined) {
-          structuredOutput = successResult.structured_output;
-        }
-        // Also capture result text as fallback
-        if (successResult.result) {
-          resultText = successResult.result;
-        }
-      } else if (message.type === 'assistant') {
-        // Fallback: accumulate assistant text in case structured_output is absent
-        const msg = message.message as { content?: Array<{ type: string; text?: string }> } | string;
-        if (typeof msg === 'string') {
-          resultText += msg;
-        } else if (msg && Array.isArray(msg.content)) {
-          for (const block of msg.content) {
-            if (block.type === 'text' && block.text) {
-              resultText += block.text;
+    const rl = readline.createInterface({ input: child.stdout! });
+
+    await new Promise<void>((resolve, reject) => {
+      rl.on('line', (line: string) => {
+        if (!line.trim()) return;
+        try {
+          const msg = JSON.parse(line);
+          if (msg.type === 'assistant') {
+            // Extract text from assistant message content blocks
+            const content = msg.message?.content;
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  resultText += block.text;
+                }
+              }
+            }
+          } else if (msg.type === 'result' && msg.subtype === 'success') {
+            if (msg.result) {
+              resultText = msg.result;
             }
           }
+        } catch {
+          // Skip non-JSON lines
         }
-      }
-    }
+      });
 
-    // Prefer structured_output from the SDK result message
-    if (structuredOutput !== undefined) {
-      return NextResponse.json({ result: structuredOutput });
-    }
+      child.on('error', reject);
+      child.on('close', (code) => {
+        rl.close();
+        if (code !== 0 && !resultText) {
+          reject(new Error(`CLI exited with code ${code}`));
+        } else {
+          resolve();
+        }
+      });
+    });
 
-    // Fallback: try to parse accumulated text as JSON
+    // Try to parse the result as JSON
     if (resultText) {
+      // Strip markdown code fences if present
+      let cleaned = resultText.trim();
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+      }
       try {
-        const parsed = JSON.parse(resultText);
+        const parsed = JSON.parse(cleaned);
         return NextResponse.json({ result: parsed });
       } catch {
         return NextResponse.json({ result: resultText });

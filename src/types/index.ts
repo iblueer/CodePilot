@@ -478,8 +478,29 @@ export interface SSEEvent {
 }
 
 // ==========================================
-// Permission Types
+// Permission Types (local — replaces SDK imports)
 // ==========================================
+
+export type PermissionBehavior = 'allow' | 'deny' | 'ask';
+export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk';
+export type PermissionUpdateDestination = 'userSettings' | 'projectSettings' | 'localSettings' | 'session' | 'cliArg';
+
+export interface PermissionRuleValue {
+  toolName: string;
+  ruleContent?: string;
+}
+
+export type PermissionUpdate =
+  | { type: 'addRules'; rules: PermissionRuleValue[]; behavior: PermissionBehavior; destination: PermissionUpdateDestination }
+  | { type: 'replaceRules'; rules: PermissionRuleValue[]; behavior: PermissionBehavior; destination: PermissionUpdateDestination }
+  | { type: 'removeRules'; rules: PermissionRuleValue[]; behavior: PermissionBehavior; destination: PermissionUpdateDestination }
+  | { type: 'setMode'; mode: PermissionMode; destination: PermissionUpdateDestination }
+  | { type: 'addDirectories'; directories: string[]; destination: PermissionUpdateDestination }
+  | { type: 'removeDirectories'; directories: string[]; destination: PermissionUpdateDestination };
+
+export type PermissionResult =
+  | { behavior: 'allow'; updatedInput?: Record<string, unknown>; updatedPermissions?: PermissionUpdate[]; toolUseID?: string }
+  | { behavior: 'deny'; message: string; interrupt?: boolean; toolUseID?: string };
 
 export interface PermissionSuggestion {
   type: string;
@@ -510,6 +531,106 @@ export interface PermissionResponseRequest {
     message?: string;
   };
 }
+
+// ==========================================
+// CLI (stream-json) Message Types
+// ==========================================
+
+/** Base fields common to all CLI NDJSON messages */
+interface CliMessageBase {
+  type: string;
+  subtype?: string;
+  session_id?: string;
+}
+
+/** System init message — first line from `claude -p --output-format stream-json` */
+export interface CliSystemMessage extends CliMessageBase {
+  type: 'system';
+  subtype: 'init';
+  session_id: string;
+  tools?: string[];
+  mcp_servers?: Record<string, unknown>[];
+  model?: string;
+  permission_mode?: string;
+}
+
+/** Assistant text content block */
+export interface CliAssistantContentBlockText {
+  type: 'text';
+  text: string;
+}
+
+/** Assistant tool_use content block */
+export interface CliAssistantContentBlockToolUse {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export type CliAssistantContentBlock = CliAssistantContentBlockText | CliAssistantContentBlockToolUse;
+
+/** Assistant turn message */
+export interface CliAssistantMessage extends CliMessageBase {
+  type: 'assistant';
+  message: {
+    id: string;
+    type: 'message';
+    role: 'assistant';
+    content: CliAssistantContentBlock[];
+    model: string;
+    stop_reason: string | null;
+    stop_sequence: string | null;
+    usage: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+  };
+  session_id: string;
+}
+
+/** User turn message (tool results) */
+export interface CliUserMessage extends CliMessageBase {
+  type: 'user';
+  message: {
+    role: 'user';
+    content: Array<{
+      type: 'tool_result';
+      tool_use_id: string;
+      content?: string;
+      is_error?: boolean;
+    }>;
+  };
+  session_id: string;
+}
+
+/** Final result message */
+export interface CliResultMessage extends CliMessageBase {
+  type: 'result';
+  subtype: 'success' | 'error';
+  is_error: boolean;
+  session_id: string;
+  result?: string;
+  total_cost_usd?: number;
+  total_duration_ms?: number;
+  total_duration_api_ms?: number;
+  num_turns?: number;
+  usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+}
+
+/** Streaming content_block_delta */
+export interface CliStreamEventMessage extends CliMessageBase {
+  type: 'content_block_start' | 'content_block_delta' | 'content_block_stop';
+  index?: number;
+  content_block?: { type: string; id?: string; name?: string; text?: string };
+  delta?: { type: string; text?: string; partial_json?: string };
+}
+
+/** Union of all CLI message types */
+export type CliMessage =
+  | CliSystemMessage
+  | CliAssistantMessage
+  | CliUserMessage
+  | CliResultMessage
+  | CliStreamEventMessage
+  | (CliMessageBase & Record<string, unknown>); // fallback for unknown types
 
 // ==========================================
 // Plugin / MCP Types

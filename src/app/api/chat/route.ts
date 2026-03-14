@@ -341,7 +341,7 @@ Start by greeting the user and asking the first question.
       prompt: content,
       sessionId: session_id,
       sdkSessionId: session.sdk_session_id || undefined,
-      model: resolved.upstreamModel || resolved.model || effectiveModel,
+      model: effectiveModel,
       systemPrompt: finalSystemPrompt,
       workingDirectory: session.sdk_cwd || session.working_directory || undefined,
       abortController,

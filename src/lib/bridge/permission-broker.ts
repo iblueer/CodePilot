@@ -9,7 +9,7 @@
  * 4. When a callback arrives, resolves the permission via the existing registry
  */
 
-import type { PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionUpdate } from '@/types';
 import type { ChannelAddress, OutboundMessage } from './types';
 import type { BaseChannelAdapter } from './channel-adapter';
 import { deliver } from './delivery-layer';

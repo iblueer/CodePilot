@@ -1,4 +1,4 @@
-import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionResult } from '@/types';
 import { resolvePermissionRequest as dbResolvePermission } from './db';
 
 interface PendingPermission {
