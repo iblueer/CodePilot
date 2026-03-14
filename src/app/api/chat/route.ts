@@ -138,7 +138,9 @@ export async function POST(request: NextRequest) {
       updateSessionProviderId(session_id, persistProviderId);
     }
 
-    // Determine permission mode from chat mode: code → acceptEdits, plan → plan, ask → default (no tools)
+    // Determine permission mode from chat mode.
+    // In GUI context, CLI runs as a subprocess and cannot prompt for permissions
+    // interactively, so code mode uses bypassPermissions to allow all tools.
     const effectiveMode = mode || session.mode || 'code';
     let permissionMode: string;
     let systemPromptOverride: string | undefined;
@@ -152,7 +154,7 @@ export async function POST(request: NextRequest) {
           '\n\nYou are in Ask mode. Answer questions and provide information only. Do not use any tools, do not read or write files, do not execute commands. Only respond with text.';
         break;
       default: // 'code'
-        permissionMode = 'acceptEdits';
+        permissionMode = 'bypassPermissions';
         break;
     }
 
